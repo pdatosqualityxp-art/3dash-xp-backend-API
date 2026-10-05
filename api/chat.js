@@ -24,12 +24,37 @@ app.post('/api/chat', async (req, res) => {
 
     const selectedModel = 'gemini-3.1-flash-lite';
 
+    // 1. Consultar los datos de la tabla 'clientes' en Supabase para obtener el contexto
+    const { data: clientesData, error: clientesError } = await supabase
+      .from('clientes')
+      .select('*');
+
+    if (clientesError) {
+      console.error('Error al obtener clientes de Supabase:', clientesError);
+    }
+
+    // 2. Construir el contexto estructurado con la información de los clientes
+    const clientesContext = clientesData 
+      ? JSON.stringify(clientesData, null, 2) 
+      : 'No hay datos de clientes disponibles.';
+
+    // 3. Crear un prompt enriquecido que combine el contexto de la base de datos y la pregunta del usuario
+    const systemPrompt = `
+Eres un asistente virtual corporativo de la empresa. Tienes acceso a la siguiente base de datos de clientes en formato JSON:
+${clientesContext}
+
+Por favor, responde a la pregunta del usuario basándote exclusivamente en esta información de clientes cuando sea relevante. Si te preguntan por ubicaciones, recuentos o datos específicos, extráelos de este listado.
+    `;
+
+    const fullPrompt = `${systemPrompt}\n\nPregunta del usuario: ${message}`;
+
+    // 4. Llamada a Gemini con el contexto inyectado
     const response = await ai.models.generateContent({
       model: selectedModel,
-      contents: message,
+      contents: fullPrompt,
       config: {
-        maxOutputTokens: 150,
-        temperature: 0.3,
+        maxOutputTokens: 300,
+        temperature: 0.2,
       }
     });
 
@@ -42,11 +67,11 @@ app.post('/api/chat', async (req, res) => {
       totalTokens: usage.totalTokenCount || 0
     };
 
-    // Intentar guardar en Supabase y capturar el error si lo hay
+    // 5. Guardar el registro en la tabla 'chat_logs'
     const { error: dbError } = await supabase.from('chat_logs').insert([
       {
         model_used: selectedModel,
-        prompt: message,
+        prompt: message, // Guardamos la pregunta original del usuario para mantener el log limpio
         reply: replyText,
         prompt_tokens: tokenData.promptTokens,
         response_tokens: tokenData.responseTokens,
