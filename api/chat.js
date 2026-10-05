@@ -16,19 +16,30 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Falta el campo message en el body' });
     }
 
-    // Llamada optimizada para consumir los mínimos tokens posibles
+    // Definimos el modelo seleccionado para mayor claridad
+    const selectedModel = 'gemini-3.1-flash-lite';
+
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: selectedModel,
       contents: message,
       config: {
-        maxOutputTokens: 150, // Limita la respuesta a un texto corto y directo
-        temperature: 0.3,     // Reduce la aleatoriedad para respuestas más precisas y directas
+        maxOutputTokens: 150,
+        temperature: 0.3,
       }
     });
 
+    // Extraer las métricas de uso de tokens devueltas por Gemini
+    const usage = response.usageMetadata || {};
+
     return res.status(200).json({
       success: true,
+      modelUsed: selectedModel,
       reply: response.text,
+      tokens: {
+        promptTokens: usage.promptTokenCount || 0,
+        responseTokens: usage.candidatesTokenCount || 0,
+        totalTokens: usage.totalTokenCount || 0
+      },
       receivedAt: new Date().toISOString()
     });
 
