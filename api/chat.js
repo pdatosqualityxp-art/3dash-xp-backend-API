@@ -23,38 +23,68 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const selectedModel = 'gemini-3.1-flash-lite';
-    const apiVersion = 'v1.1'; // Definimos la versión de la API
+    const apiVersion = 'v1.1';
 
-    // 1. Consultar los datos de la tabla 'clientes' en Supabase para obtener el contexto
-    const { data: clientesData, error: clientesError } = await supabase
-      .from('clientes')
-      .select('*');
+    // 1. Consultar de forma concurrente todas las tablas de negocio en Supabase (excluyendo chat_logs)
+    const [
+      { data: almacenData },
+      { data: clientesData },
+      { data: comprasData },
+      { data: estadoIntervencionesData },
+      { data: intervencionesData },
+      { data: productosData },
+      { data: proveedoresData },
+      { data: serviciosData },
+      { data: stockData },
+      { data: ventasData }
+    ] = await Promise.all([
+      supabase.from('almacen').select('*'),
+      supabase.from('clientes').select('*'),
+      supabase.from('compras').select('*'),
+      supabase.from('estadointervenciones').select('*'),
+      supabase.from('intervenciones').select('*'),
+      supabase.from('productos').select('*'),
+      supabase.from('proveedores').select('*'),
+      supabase.from('servicios').select('*'),
+      supabase.from('stock').select('*'),
+      supabase.from('ventas').select('*')
+    ]);
 
-    if (clientesError) {
-      console.error('Error al obtener clientes de Supabase:', clientesError);
-    }
+    // 2. Consolidar todo el contexto corporativo estructurado por tablas
+    const corporateContext = {
+      almacen: almacenData || [],
+      clientes: clientesData || [],
+      compras: comprasData || [],
+      estadoIntervenciones: estadoIntervencionesData || [],
+      intervenciones: intervencionesData || [],
+      productos: productosData || [],
+      proveedores: proveedoresData || [],
+      servicios: serviciosData || [],
+      stock: stockData || [],
+      ventas: ventasData || []
+    };
 
-    // 2. Construir el contexto estructurado con la información de los clientes
-    const clientesContext = clientesData 
-      ? JSON.stringify(clientesData, null, 2) 
-      : 'No hay datos de clientes disponibles.';
+    const contextString = JSON.stringify(corporateContext, null, 2);
 
-    // 3. Crear un prompt enriquecido que combine el contexto de la base de datos y la pregunta del usuario
+    // 3. Crear el prompt del sistema corporativo con acceso global a todas las tablas
     const systemPrompt = `
-Eres un asistente virtual corporativo de la empresa. Tienes acceso a la siguiente base de datos de clientes en formato JSON:
-${clientesContext}
+Eres un asistente virtual corporativo integral de la empresa. Tienes acceso completo a la base de datos de la compañía en formato JSON, la cual incluye múltiples tablas interrelacionadas (almacén, clientes, compras, estado de intervenciones, intervenciones, productos, proveedores, servicios, stock y ventas):
+${contextString}
 
-Por favor, responde a la pregunta del usuario basándote exclusivamente en esta información de clientes cuando sea relevante. Si te preguntan por ubicaciones, recuentos o datos específicos, extráelos de este listado.
+Instrucciones:
+- Responde a la pregunta del usuario basándote exclusivamente en la información corporativa anterior.
+- Puedes cruzar o relacionar datos entre tablas si la pregunta lo requiere (por ejemplo, relacionar clientes con ventas o productos con stock/almacén).
+- Si te preguntan sobre temas ajenos a la empresa (clima, opiniones personales, etc.), recházalo educadamente indicando que solo atiendes consultas corporativas autorizadas.
     `;
 
     const fullPrompt = `${systemPrompt}\n\nPregunta del usuario: ${message}`;
 
-    // 4. Llamada a Gemini con el contexto inyectado
+    // 4. Llamada a Gemini con el contexto global inyectado
     const response = await ai.models.generateContent({
       model: selectedModel,
       contents: fullPrompt,
       config: {
-        maxOutputTokens: 300,
+        maxOutputTokens: 500,
         temperature: 0.2,
       }
     });
@@ -68,11 +98,11 @@ Por favor, responde a la pregunta del usuario basándote exclusivamente en esta 
       totalTokens: usage.totalTokenCount || 0
     };
 
-    // 5. Guardar el registro en la tabla 'chat_logs'
+    // 5. Guardar el registro de la auditoría en la tabla 'chat_logs'
     const { error: dbError } = await supabase.from('chat_logs').insert([
       {
         model_used: selectedModel,
-        prompt: message, // Guardamos la pregunta original del usuario para mantener el log limpio
+        prompt: message,
         reply: replyText,
         prompt_tokens: tokenData.promptTokens,
         response_tokens: tokenData.responseTokens,
@@ -82,7 +112,7 @@ Por favor, responde a la pregunta del usuario basándote exclusivamente en esta 
 
     return res.status(200).json({
       success: true,
-      apiVersion: apiVersion, // Añadido aquí en la respuesta JSON
+      apiVersion: apiVersion,
       modelUsed: selectedModel,
       reply: replyText,
       tokens: tokenData,
@@ -94,7 +124,7 @@ Por favor, responde a la pregunta del usuario basándote exclusivamente en esta 
     console.error('Error al procesar la petición:', error);
     return res.status(500).json({
       success: false,
-      apiVersion: 'v1.1', // Opcional: incluirlo también en caso de error si lo deseas
+      apiVersion: 'v1.1',
       error: 'Error interno al procesar la petición',
       details: error.message
     });
