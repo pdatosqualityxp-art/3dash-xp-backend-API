@@ -22,6 +22,9 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'Falta el campo message en el body' });
     }
 
+    // Obtener la IP real del usuario (compatible con proxies como Vercel y entorno local)
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'Desconocida';
+
     const selectedModel = 'gemini-3.1-flash-lite';
     const apiVersion = 'v1.1';
 
@@ -73,8 +76,8 @@ ${contextString}
 
 Instrucciones:
 - Responde a la pregunta del usuario basándote exclusivamente en la información corporativa anterior.
-- Puedes cruzar o relacionar datos entre tablas si la pregunta lo requiere (por ejemplo, relacionar clientes con ventas o productos con stock/almacén).
-- Si te preguntan sobre temas ajenos a la empresa (clima, opiniones personales, etc.), recházalo educadamente indicando que solo atiendes consultas corporativas autorizadas.
+- Puedes cruzar o relacionar datos entre tablas si la pregunta lo requiere.
+- Si te preguntan sobre temas ajenos a la empresa, recházalo educadamente indicando que solo atiendes consultas corporativas autorizadas.
     `;
 
     const fullPrompt = `${systemPrompt}\n\nPregunta del usuario: ${message}`;
@@ -98,7 +101,7 @@ Instrucciones:
       totalTokens: usage.totalTokenCount || 0
     };
 
-    // 5. Guardar el registro de la auditoría en la tabla 'chat_logs'
+    // 5. Guardar el registro de la auditoría en la tabla 'chat_logs' incluyendo la IP
     const { error: dbError } = await supabase.from('chat_logs').insert([
       {
         model_used: selectedModel,
@@ -106,13 +109,15 @@ Instrucciones:
         reply: replyText,
         prompt_tokens: tokenData.promptTokens,
         response_tokens: tokenData.responseTokens,
-        total_tokens: tokenData.totalTokens
+        total_tokens: tokenData.totalTokens,
+        client_ip: clientIp // Asegúrate de tener una columna llamada client_ip en tu tabla chat_logs de Supabase
       }
     ]);
 
     return res.status(200).json({
       success: true,
       apiVersion: apiVersion,
+      clientIp: clientIp, // Se devuelve en el JSON de respuesta
       modelUsed: selectedModel,
       reply: replyText,
       tokens: tokenData,
