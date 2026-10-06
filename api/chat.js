@@ -23,6 +23,7 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const selectedModel = 'gemini-3.1-flash-lite';
+    const apiVersion = 'v1.1'; // Definimos la versión de la API
 
     // 1. Consultar los datos de la tabla 'clientes' en Supabase para obtener el contexto
     const { data: clientesData, error: clientesError } = await supabase
@@ -81,6 +82,7 @@ Por favor, responde a la pregunta del usuario basándote exclusivamente en esta 
 
     return res.status(200).json({
       success: true,
+      apiVersion: apiVersion, // Añadido aquí en la respuesta JSON
       modelUsed: selectedModel,
       reply: replyText,
       tokens: tokenData,
@@ -92,6 +94,7 @@ Por favor, responde a la pregunta del usuario basándote exclusivamente en esta 
     console.error('Error al procesar la petición:', error);
     return res.status(500).json({
       success: false,
+      apiVersion: 'v1.1', // Opcional: incluirlo también en caso de error si lo deseas
       error: 'Error interno al procesar la petición',
       details: error.message
     });
